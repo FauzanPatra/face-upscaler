@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+weights/GFPGANv1.3.pth filter=lfs diff=lfs merge=lfs -text
+weights/RealESRGAN_x4plus.pth filter=lfs diff=lfs merge=lfs -text
+models/yolov8n-face.pt filter=lfs diff=lfs merge=lfs -text
