@@ -1,4 +1,6 @@
 import os
+import sys
+import subprocess
 import gdown
 import streamlit as st
 import cv2
@@ -214,4 +216,4 @@ if file_upload:
 
 # Catatan kaki
 st.divider()
-st.caption("© 2023 Face Enhancer Pro | Dibuat dengan Streamlit")
+st.caption("© 2025 Face Enhancer Pro | Dibuat dengan Streamlit")
