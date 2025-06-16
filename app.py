@@ -20,32 +20,62 @@ from io import BytesIO
 #  VERIFIKASI DEPENDENSI #
 # ====================== #
 def verifikasi_dependensi():
+    """Memastikan semua dependensi terinstall dengan benar"""
     required = {
         'opencv-python': '4.8.0.76',
+        'streamlit': '1.28.0',
         'torch': '2.0.1',
         'sahi': '0.11.4',
         'realesrgan': '0.3.0',
         'gfpgan': '1.3.8',
         'numpy': '1.24.3',
         'Pillow': '10.0.0',
-        'basicsr': '1.4.2'
+        'basicsr': '1.4.2',
+        'gdown': '4.7.1'
     }
     
+    # Coba import OpenCV terlebih dahulu karena paling kritis
+    try:
+        import cv2
+    except ImportError:
+        print("OpenCV tidak ditemukan, melakukan instalasi...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python==4.8.0.76"])
+        import cv2
+    
+    # Verifikasi sisanya
     installed = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
     missing = [pkg for pkg, ver in required.items() if pkg not in installed]
     
     if missing:
-        with st.spinner(f"Memasang dependensi yang kurang: {', '.join(missing)}..."):
-            subprocess.check_call([sys.executable, "-m", "pip", "install"] + [f"{pkg}=={ver}" for pkg, ver in required.items()])
-        st.experimental_rerun()
+        print(f"Memasang dependensi yang kurang: {', '.join(missing)}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install"] + [f"{pkg}=={ver}" for pkg, ver in required.items()])
+        print("Instalasi selesai. Silakan restart aplikasi.")
+        sys.exit(1)
+
+# Verifikasi sebelum import streamlit
+verifikasi_dependensi()
 
 # ====================== #
-#  PENGATURAN APLIKASI   #
+#  IMPORT LIBRARY UTAMA  #
+# ====================== #
+import streamlit as st
+import cv2
+import torch
+from sahi import AutoDetectionModel
+from sahi.predict import get_sliced_prediction
+from sahi.utils.cv import visualize_object_predictions
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from realesrgan import RealESRGANer
+from gfpgan import GFPGANer
+
+# ====================== #
+#  KONFIGURASI APLIKASI  #
 # ====================== #
 st.set_page_config(
     page_title="✨ Face Enhancer Pro",
     page_icon=":camera_flash:",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # ====================== #
@@ -74,7 +104,7 @@ def unduh_model():
 @st.cache_resource(ttl=3600)
 def muat_model():
     """Memuat semua model dengan caching"""
-    unduh_model()  # Pastikan model sudah ada
+    unduh_model()
     
     try:
         # Detektor Wajah
@@ -114,8 +144,6 @@ def muat_model():
 #  TAMPILAN UTAMA       #
 # ====================== #
 def main():
-    verifikasi_dependensi()
-    
     st.title("✨ Face Enhancer Pro")
     st.markdown("""
     Meningkatkan kualitas gambar dengan:
@@ -136,9 +164,7 @@ def main():
         st.write(f"PyTorch: {torch.__version__}")
         st.write(f"OpenCV: {cv2.__version__}")
 
-    # ====================== #
-    #  PROSES UTAMA         #
-    # ====================== #
+    # Proses Upload Gambar
     file_upload = st.file_uploader(
         "Unggah gambar (JPG/PNG)", 
         type=["jpg", "png", "jpeg"],
@@ -163,14 +189,14 @@ def main():
 
                 with st.spinner("Meningkatkan resolusi..."):
                     try:
+                        # Konversi ke BGR untuk RealESRGAN
+                        array_gambar_bgr = cv2.cvtColor(array_gambar, cv2.COLOR_RGB2BGR)
+                        
                         # Upscale gambar
                         gambar_upscale, _ = upsampler.enhance(
-                            array_gambar, 
+                            array_gambar_bgr, 
                             outscale=faktor_upscale
                         )
-                        
-                        # Konversi ke BGR untuk GFPGAN
-                        gambar_upscale = cv2.cvtColor(gambar_upscale, cv2.COLOR_RGB2BGR)
                         
                         # Perbaikan wajah (opsional)
                         if aktifkan_perbaikan:
@@ -182,11 +208,11 @@ def main():
                             )
 
                         # Konversi kembali ke RGB untuk visualisasi
-                        gambar_upscale = cv2.cvtColor(gambar_upscale, cv2.COLOR_BGR2RGB)
+                        gambar_upscale_rgb = cv2.cvtColor(gambar_upscale, cv2.COLOR_BGR2RGB)
 
                         # Deteksi wajah
                         hasil_deteksi = get_sliced_prediction(
-                            gambar_upscale,
+                            gambar_upscale_rgb,
                             model_wajah,
                             slice_height=640,
                             slice_width=640,
@@ -196,13 +222,13 @@ def main():
                         # Visualisasi hasil
                         if hasil_deteksi.object_prediction_list:
                             gambar_hasil = visualize_object_predictions(
-                                gambar_upscale,
+                                gambar_upscale_rgb,
                                 hasil_deteksi.object_prediction_list,
                                 output_dir=None
                             )["image"]
                             jumlah_wajah = len(hasil_deteksi.object_prediction_list)
                         else:
-                            gambar_hasil = gambar_upscale
+                            gambar_hasil = gambar_upscale_rgb
                             jumlah_wajah = 0
                             st.warning("Tidak ada wajah yang terdeteksi!")
 
@@ -225,12 +251,6 @@ def main():
                                 file_name=f"hasil_{file_upload.name}",
                                 mime="image/jpeg"
                             )
-
-                            # Informasi teknis
-                            with st.expander("🔍 Detail Teknis"):
-                                st.metric("Ukuran Asli", f"{gambar_asli.width}×{gambar_asli.height} piksel")
-                                st.metric("Ukuran Hasil", f"{gambar_hasil.shape[1]}×{gambar_hasil.shape[0]} piksel")
-                                st.metric("Model", "YOLOv8n + RealESRGAN_x4plus + GFPGANv1.3")
 
                     except Exception as e:
                         st.error(f"Terjadi kesalahan saat memproses gambar: {str(e)}")
