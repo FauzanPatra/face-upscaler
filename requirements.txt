@@ -1,5 +1,5 @@
-streamlit==1.28.0
 opencv-python==4.8.0.76
+streamlit==1.28.0
 torch==2.0.1
 torchvision==0.15.2
 sahi==0.11.4
