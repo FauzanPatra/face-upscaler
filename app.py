@@ -13,6 +13,7 @@ from sahi import AutoDetectionModel
 from sahi.predict import get_sliced_prediction
 from sahi.utils.cv import visualize_object_predictions
 from basicsr.archs.rrdbnet_arch import RRDBNet
+from ultralytics import YOLO
 from realesrgan import RealESRGANer
 from gfpgan import GFPGANer
 
@@ -28,7 +29,6 @@ class ESRGAN_Enhancer:
         """Memuat model ESRGAN dan GFPGAN"""
         os.makedirs("weights", exist_ok=True)
         
-        # Download model jika belum ada
         model_dict = {
             "weights/RealESRGAN_x4plus.pth": "https://drive.google.com/uc?id=1d-wlgMp2NZPnLfSkcCgRNqN_yd83Lew8",
             "weights/GFPGANv1.3.pth": "https://drive.google.com/uc?id=1H3m1BquK3wWb2XM9EPa4i_w7AsOiH546"
@@ -39,7 +39,6 @@ class ESRGAN_Enhancer:
                 with st.spinner(f"Mengunduh {os.path.basename(path)}..."):
                     gdown.download(url, path, quiet=True)
 
-        # Inisialisasi model
         model = RRDBNet(
             num_in_ch=3, num_out_ch=3, num_feat=64, 
             num_block=23, num_grow_ch=32, scale=4
@@ -61,13 +60,9 @@ class ESRGAN_Enhancer:
     def enhance_image(self, image, upscale_factor=2, enhance_face=True):
         """Meningkatkan resolusi gambar"""
         try:
-            # Konversi ke BGR untuk RealESRGAN
             img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            
-            # Upscale gambar
             upscaled_img, _ = self.upsampler.enhance(img_bgr, outscale=upscale_factor)
             
-            # Perbaikan wajah (opsional)
             if enhance_face:
                 _, _, upscaled_img = self.face_enhancer.enhance(
                     upscaled_img,
@@ -76,7 +71,6 @@ class ESRGAN_Enhancer:
                     paste_back=True
                 )
             
-            # Konversi kembali ke RGB
             return cv2.cvtColor(upscaled_img, cv2.COLOR_BGR2RGB)
             
         except Exception as e:
@@ -94,7 +88,6 @@ class FaceDetector:
         """Memuat model deteksi wajah"""
         os.makedirs("models", exist_ok=True)
         
-        # Download model jika belum ada
         model_path = "models/yolov8n-face.pt"
         if not os.path.exists(model_path):
             with st.spinner("Mengunduh model deteksi wajah..."):
@@ -104,34 +97,27 @@ class FaceDetector:
                     quiet=True
                 )
 
-        # Inisialisasi model
-        self.model = AutoDetectionModel.from_pretrained(
-            model_type="yolov8",
-            model_path=model_path,
-            confidence_threshold=0.4,
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
+        # Gunakan YOLO langsung dari Ultralytics
+        self.model = YOLO(model_path)
     
     def detect_faces(self, image, slice_size=640, overlap_ratio=0.3):
         """Mendeteksi wajah dalam gambar"""
         try:
-            # Deteksi wajah dengan SAHI
-            result = get_sliced_prediction(
-                image,
-                self.model,
-                slice_height=slice_size,
-                slice_width=slice_size,
-                overlap_height_ratio=overlap_ratio
+            img_array = np.array(image)
+            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
+            # Deteksi dengan YOLOv8
+            results = self.model.predict(
+                img_bgr,
+                conf=0.4,
+                imgsz=slice_size
             )
             
             # Visualisasi hasil
-            if result.object_prediction_list:
-                visualized_image = visualize_object_predictions(
-                    image,
-                    result.object_prediction_list,
-                    output_dir=None
-                )["image"]
-                return visualized_image, len(result.object_prediction_list)
+            if len(results[0]) > 0:
+                visualized_image = results[0].plot()
+                visualized_image = cv2.cvtColor(visualized_image, cv2.COLOR_BGR2RGB)
+                return visualized_image, len(results[0])
             else:
                 return image, 0
                 
@@ -151,7 +137,6 @@ def main():
     
     st.title("✨ Face Enhancer Pro")
     
-    # Sidebar untuk pengaturan
     with st.sidebar:
         st.header("⚙️ Pengaturan")
         tab1, tab2 = st.tabs(["ESRGAN", "Face Detection"])
@@ -163,39 +148,30 @@ def main():
         with tab2:
             detection_thresh = st.slider("Threshold Deteksi", 0.1, 0.9, 0.4, 0.05)
             slice_size = st.slider("Ukuran Slice", 320, 800, 640, 32)
-            overlap_ratio = st.slider("Overlap Ratio", 0.1, 0.5, 0.3, 0.05)
         
         st.divider()
         st.markdown("**ℹ️ Informasi Sistem**")
         st.write(f"Device: {'GPU 🚀' if torch.cuda.is_available() else 'CPU 🐢'}")
     
-    # Upload gambar
     uploaded_file = st.file_uploader(
         "Unggah gambar (JPG/PNG)", 
         type=["jpg", "png", "jpeg"]
     )
     
     if uploaded_file:
-        # Baca gambar
         original_image = Image.open(uploaded_file).convert("RGB")
-        original_array = np.array(original_image)
-        
-        # Tampilkan gambar asli
         col1, col2 = st.columns(2)
+        
         with col1:
             st.image(original_image, caption="Gambar Asli", use_column_width=True)
         
-        # Proses gambar
         if st.button("🚀 Proses Sekarang", type="primary"):
             with st.spinner("Memuat model..."):
-                # Inisialisasi kedua modul
                 esrgan = ESRGAN_Enhancer()
                 face_detector = FaceDetector()
-                
                 esrgan.load_models()
                 face_detector.load_model()
             
-            # Proses ESRGAN terlebih dahulu
             with st.spinner("Meningkatkan resolusi..."):
                 enhanced_img = esrgan.enhance_image(
                     original_image, 
@@ -203,16 +179,13 @@ def main():
                     enhance_face=enhance_faces
                 )
             
-            # Kemudian deteksi wajah
             if enhanced_img is not None:
                 with st.spinner("Mendeteksi wajah..."):
                     final_img, face_count = face_detector.detect_faces(
                         enhanced_img,
-                        slice_size=slice_size,
-                        overlap_ratio=overlap_ratio
+                        slice_size=slice_size
                     )
                 
-                # Tampilkan hasil
                 with col2:
                     st.image(
                         final_img, 
@@ -220,7 +193,6 @@ def main():
                         use_column_width=True
                     )
                     
-                    # Tombol download
                     buf = BytesIO()
                     Image.fromarray(final_img).save(buf, format="JPEG", quality=95)
                     st.download_button(
@@ -231,28 +203,4 @@ def main():
                     )
 
 if __name__ == "__main__":
-    # Verifikasi dependensi sebelum menjalankan
-    def check_dependencies():
-        required = {
-            'opencv-python': '4.8.0.76',
-            'streamlit': '1.28.0',
-            'torch': '2.0.1',
-            'sahi': '0.11.4',
-            'realesrgan': '0.3.0',
-            'gfpgan': '1.3.8',
-            'numpy': '1.24.3',
-            'Pillow': '10.0.0',
-            'basicsr': '1.4.2',
-            'gdown': '4.7.1'
-        }
-        
-        installed = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
-        missing = [pkg for pkg, ver in required.items() if pkg not in installed]
-        
-        if missing:
-            st.warning(f"Memasang dependensi yang kurang: {', '.join(missing)}")
-            subprocess.check_call([sys.executable, "-m", "pip", "install"] + [f"{pkg}=={ver}" for pkg, ver in required.items()])
-            st.experimental_rerun()
-    
-    check_dependencies()
     main()
