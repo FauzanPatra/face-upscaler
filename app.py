@@ -160,7 +160,7 @@ def main():
     
     if uploaded_file:
         original_image = Image.open(uploaded_file).convert("RGB")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.image(original_image, caption="Gambar Asli", use_column_width=True)
@@ -180,26 +180,46 @@ def main():
                 )
             
             if enhanced_img is not None:
+                # Show upscaled image only
+                with col2:
+                    st.image(
+                        enhanced_img, 
+                        caption="Hasil Upscale", 
+                        use_column_width=True
+                    )
+                    
+                    buf1 = BytesIO()
+                    Image.fromarray(enhanced_img).save(buf1, format="JPEG", quality=95)
+                    st.download_button(
+                        "💾 Download Upscale",
+                        buf1.getvalue(),
+                        file_name=f"upscaled_{uploaded_file.name}",
+                        mime="image/jpeg",
+                        key="download_upscale"
+                    )
+                
                 with st.spinner("Mendeteksi wajah..."):
                     final_img, face_count = face_detector.detect_faces(
                         enhanced_img,
                         slice_size=slice_size
                     )
                 
-                with col2:
+                # Show upscale + YOLO + SAHI image
+                with col3:
                     st.image(
                         final_img, 
-                        caption=f"Hasil ({face_count} wajah terdeteksi)", 
+                        caption=f"Hasil Deteksi ({face_count} wajah terdeteksi)", 
                         use_column_width=True
                     )
                     
-                    buf = BytesIO()
-                    Image.fromarray(final_img).save(buf, format="JPEG", quality=95)
+                    buf2 = BytesIO()
+                    Image.fromarray(final_img).save(buf2, format="JPEG", quality=95)
                     st.download_button(
-                        "💾 Download Hasil",
-                        buf.getvalue(),
-                        file_name=f"enhanced_{uploaded_file.name}",
-                        mime="image/jpeg"
+                        "💾 Download Deteksi",
+                        buf2.getvalue(),
+                        file_name=f"detected_{uploaded_file.name}",
+                        mime="image/jpeg",
+                        key="download_detection"
                     )
 
 if __name__ == "__main__":
