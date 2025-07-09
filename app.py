@@ -99,7 +99,7 @@ class FaceDetector:
 
         self.model = YOLO(model_path)
     
-    def detect_faces(self, image, slice_size=640, overlap_ratio=0.3):
+    def detect_faces(self, image, conf_thresh=0.4, slice_size=640):
         """Mendeteksi wajah dalam gambar"""
         try:
             img_array = np.array(image)
@@ -107,7 +107,7 @@ class FaceDetector:
             
             results = self.model.predict(
                 img_bgr,
-                conf=0.2,
+                conf=conf_thresh,
                 imgsz=slice_size
             )
             
@@ -115,7 +115,14 @@ class FaceDetector:
                 visualized_image = img_bgr.copy()
                 for box in results[0].boxes:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cv2.rectangle(visualized_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    # Tambah padding untuk bounding box lebih besar
+                    padding_w = int((x2 - x1) * 0.15)  # 15% padding horizontal
+                    padding_h = int((y2 - y1) * 0.25)  # 25% padding vertikal
+                    x1 = max(0, x1 - padding_w)
+                    y1 = max(0, y1 - padding_h)
+                    x2 = min(img_bgr.shape[1], x2 + padding_w)
+                    y2 = min(img_bgr.shape[0], y2 + padding_h)
+                    cv2.rectangle(visualized_image, (x1, y1), (x2, y2), (0, 0, 255), 3)
                 
                 visualized_image = cv2.cvtColor(visualized_image, cv2.COLOR_BGR2RGB)
                 return visualized_image, len(results[0])
@@ -126,7 +133,7 @@ class FaceDetector:
             st.error(f"Gagal mendeteksi wajah: {str(e)}")
             return image, 0
 
-    def detect_faces_with_sahi(self, image, slice_size=640, overlap_ratio=0.3):
+    def detect_faces_with_sahi(self, image, conf_thresh=0.4, slice_size=640, overlap_ratio=0.3):
         """Mendeteksi wajah dalam gambar dengan SAHI"""
         try:
             img_array = np.array(image)
@@ -135,7 +142,7 @@ class FaceDetector:
             detection_model = AutoDetectionModel.from_pretrained(
                 model_type='yolov8',
                 model_path="models/yolov8n-face.pt",
-                confidence_threshold=0.2,
+                confidence_threshold=conf_thresh,
                 device="cuda" if torch.cuda.is_available() else "cpu",
                 load_at_init=False
             )
@@ -156,7 +163,14 @@ class FaceDetector:
                 for pred in result.object_prediction_list:
                     bbox = pred.bbox
                     x1, y1, x2, y2 = int(bbox.minx), int(bbox.miny), int(bbox.maxx), int(bbox.maxy)
-                    cv2.rectangle(visualized_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    # Tambah padding untuk bounding box lebih besar
+                    padding_w = int((x2 - x1) * 0.15)  # 15% padding horizontal
+                    padding_h = int((y2 - y1) * 0.25)  # 25% padding vertikal
+                    x1 = max(0, x1 - padding_w)
+                    y1 = max(0, y1 - padding_h)
+                    x2 = min(img_bgr.shape[1], x2 + padding_w)
+                    y2 = min(img_bgr.shape[0], y2 + padding_h)
+                    cv2.rectangle(visualized_image, (x1, y1), (x2, y2), (0, 0, 255), 3)
                 
                 visualized_image = cv2.cvtColor(visualized_image, cv2.COLOR_BGR2RGB)
                 return visualized_image, len(result.object_prediction_list)
@@ -244,6 +258,7 @@ def main():
                 with st.spinner("Mendeteksi wajah dengan YOLO..."):
                     yolo_img, yolo_face_count = face_detector.detect_faces(
                         enhanced_img,
+                        conf_thresh=detection_thresh,
                         slice_size=slice_size
                     )
                     
@@ -266,6 +281,7 @@ def main():
                 with st.spinner("Mendeteksi wajah dengan SAHI+YOLO..."):
                     sahi_yolo_img, sahi_face_count = face_detector.detect_faces_with_sahi(
                         enhanced_img,
+                        conf_thresh=detection_thresh,
                         slice_size=slice_size,
                         overlap_ratio=overlap_ratio
                     )
